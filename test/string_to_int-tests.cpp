@@ -2,6 +2,7 @@
 #include "adaptive_radix_tree.h"
 
 #include <vector>
+#include <fstream>
 
 struct StringToIntAdaptiveRadixTreeTest : public ::testing::Test
 {
@@ -11,6 +12,19 @@ struct StringToIntAdaptiveRadixTreeTest : public ::testing::Test
 
 	~StringToIntAdaptiveRadixTreeTest()
 	{
+	}
+
+	static void load_keys_from_file(const std::string& path, std::vector<std::string>& keys)
+	{
+		keys.clear();
+
+		std::ifstream f(path);
+		std::string line;
+		while (std::getline(f, line))
+		{
+			if (!line.empty())
+				keys.push_back(line);
+		}
 	}
 
 	typedef adaptive_radix_tree<const char*, int> tree_int_int;
@@ -62,6 +76,46 @@ TEST_F(StringToIntAdaptiveRadixTreeTest, insert_ThreePairs_AddsNodeToRoot)
 	EXPECT_EQ(3, tree_int_int_.size());
 	EXPECT_EQ(true, result.second);
 	EXPECT_EQ(3, result.first.second);
+}
+
+TEST_F(StringToIntAdaptiveRadixTreeTest, insert_and_find_KeysFromWordsDictionary)
+{
+	std::vector<std::string> keys;
+	load_keys_from_file("../words.txt", keys);
+	EXPECT_GT(keys.size(), 0);
+
+	for (size_t i = 0; i < keys.size(); ++i)
+	{
+		tree_int_int_.insert(keys[i].c_str(), i);
+		EXPECT_EQ(i + 1, tree_int_int_.size());
+	}
+
+	for (size_t i = 0; i < keys.size(); ++i)
+	{
+		tree_int_int::iterator findIt = tree_int_int_.find(keys[i].c_str());
+		EXPECT_TRUE(findIt != tree_int_int_.end());
+		EXPECT_EQ(i, findIt.second);
+	}
+}
+
+TEST_F(StringToIntAdaptiveRadixTreeTest, insert_and_find_KeysFromUUIDDictionary)
+{
+	std::vector<std::string> keys;
+	load_keys_from_file("../uuid.txt", keys);
+	EXPECT_GT(keys.size(), 0);
+
+	for (size_t i = 0; i < keys.size(); ++i)
+	{
+		tree_int_int_.insert(keys[i].c_str(), i);
+		EXPECT_EQ(i + 1, tree_int_int_.size());
+	}
+
+	for (size_t i = 0; i < keys.size(); ++i)
+	{
+		tree_int_int::iterator findIt = tree_int_int_.find(keys[i].c_str());
+		EXPECT_TRUE(findIt != tree_int_int_.end());
+		EXPECT_EQ(i, findIt.second);
+	}
 }
 
 TEST_F(StringToIntAdaptiveRadixTreeTest, find)

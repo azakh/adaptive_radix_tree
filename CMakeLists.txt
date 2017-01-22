@@ -35,6 +35,11 @@ add_executable(art-unittest
 	${PROJECT_SOURCE_DIR}/test/string_to_int-tests.cpp
 )
 
+configure_file(${PROJECT_SOURCE_DIR}/test/words.txt ${CMAKE_BINARY_DIR}/words.txt COPYONLY)
+configure_file(${PROJECT_SOURCE_DIR}/test/words.txt words.txt COPYONLY)
+configure_file(${PROJECT_SOURCE_DIR}/test/words.txt ${CMAKE_BINARY_DIR}/uuid.txt COPYONLY)
+configure_file(${PROJECT_SOURCE_DIR}/test/words.txt uuid.txt COPYONLY)
+
 add_subdirectory( ${GTEST_DIR}/googletest )
 
 target_link_libraries(art-unittest

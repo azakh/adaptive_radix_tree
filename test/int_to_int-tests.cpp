@@ -148,6 +148,8 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ThreePairs_AddsNodeToRoot)
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
 {
 	std::vector<int> keys;
+	// Here we test tree in configuration root-0/1-n1-n2, where nN nodes can grow.
+	// This is to test low-level nodes promotion when prefix path is not changing much.
 	FillIntKeysWithGenerator<IncrementLowBitsKeyGenerator<4> >(keys, 2 * 256 * 256);
 
 	for (size_t i = 0; i < keys.size(); ++i)
@@ -167,26 +169,9 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256_ForwardKey)
 {
 	std::vector<int> keys;
+	// Here we test tree in configuration root-n1-n2-0, where nN nodes can grow 
+	// This is to test top-level nodes promotion.
 	FillIntKeysWithGenerator<IncrementHighBitsKeyGenerator<4> >(keys, 2 * 256 * 256);
-
-	for (size_t i = 0; i < keys.size(); ++i)
-	{
-		tree_int_int_.insert(keys[i], i);
-		EXPECT_EQ(i + 1, tree_int_int_.size());
-	}
-
-	for (size_t i = 0; i < keys.size(); ++i)
-	{
-		tree_int_int::iterator findIt = tree_int_int_.find(keys[i]);
-		EXPECT_TRUE(findIt != tree_int_int_.end());
-		EXPECT_EQ(i, findIt.second);
-	}
-}
-
-TEST_F(IntToIntAdaptiveRadixTreeTest, insert_VeryLongKeys)
-{
-	std::vector<int> keys;
-	FillIntKeysWithGenerator<IncrementLowBitsKeyGenerator<4> >(keys, 2 * 256 * 256);
 
 	for (size_t i = 0; i < keys.size(); ++i)
 	{
