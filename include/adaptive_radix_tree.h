@@ -6,22 +6,27 @@
 #include <utility>
 #include <algorithm>
 
-// sizeof(base_adaptive_radix_tree::node_256)	2064
-// sizeof(base_adaptive_radix_tree::node_48)	656
-// sizeof(base_adaptive_radix_tree::node_16)	160
-// sizeof(base_adaptive_radix_tree::node_4)		56
+// Only temporary to avoid size calculation for string.
+#include <string>
+
 // sizeof(base_adaptive_radix_tree::node_leaf)	24
+// sizeof(base_adaptive_radix_tree::node_4)		56
+// sizeof(base_adaptive_radix_tree::node_16)	160
+// sizeof(base_adaptive_radix_tree::node_48)	656
+// sizeof(base_adaptive_radix_tree::node_256)	2064
+
+#define ENABLE_ADAPTIVE_RADIX_TREE_STATS 1
 
 template<typename TValue>
 class base_adaptive_radix_tree
 {
 protected:
 	// Node type is defined by node pointer low 4 bits.
-	struct node_leaf_traits { enum {                          kPointerEmbeddedType = 0 }; };
-	struct node_4_traits    { enum { kMaxChildrenCount = 4,   kPointerEmbeddedType = 1 }; };
-	struct node_16_traits   { enum { kMaxChildrenCount = 16,  kPointerEmbeddedType = 2 }; };
-	struct node_48_traits   { enum { kMaxChildrenCount = 48,  kPointerEmbeddedType = 4 }; };
-	struct node_256_traits  { enum { kMaxChildrenCount = 256, kPointerEmbeddedType = 8 }; };
+	struct node_leaf_traits { enum { kPointerEmbeddedType = 0 }; enum { kStatsIndex = 0 }; };
+	struct node_4_traits    { enum { kPointerEmbeddedType = 1 }; enum { kStatsIndex = 1 }; enum { kMaxChildrenCount = 4   }; };
+	struct node_16_traits   { enum { kPointerEmbeddedType = 2 }; enum { kStatsIndex = 2 }; enum { kMaxChildrenCount = 16  }; };
+	struct node_48_traits   { enum { kPointerEmbeddedType = 4 }; enum { kStatsIndex = 3 }; enum { kMaxChildrenCount = 48  }; };
+	struct node_256_traits  { enum { kPointerEmbeddedType = 8 }; enum { kStatsIndex = 4 }; enum { kMaxChildrenCount = 256 }; };
 
 	enum
 	{
@@ -270,6 +275,9 @@ public:
 		: root_()
 		, size_(0)
 	{
+#ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
+		memset(&node_stats_, 0, sizeof(node_stats_));
+#endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 	}
 
 	size_t size() const
@@ -277,13 +285,62 @@ public:
 		return size_;
 	}
 
-
 	void clear()
 	{
 		size_ = 0;
+#ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
+		memset(&node_stats_, 0, sizeof(node_stats_));
+#endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 	}
 
-	const node_leaf* find(const uint8_t* key, size_t keyLen) const
+	enum FindResult
+	{
+		kFoundLeaf,
+		kFoundParent,
+		kFoundNodeToSplit,
+	};
+
+	FindResult find_any(const uint8_t* key, size_t keyLen, node_ptr_with_type& result, size_t& usedKey) const
+	{
+		assert(keyLen != 0);
+
+		// Starting from root
+		node_ptr_with_type current_node_with_type = root_;
+		while (current_node_with_type.is_valid())
+		{
+			node_ptr n = current_node_with_type;
+			const size_t prefixLen = n->prefixLength;
+			// Process prefix
+			if (prefixLen != 0)
+			{
+				// If prefix is larger than key part, no match
+				if (prefixLen > keyLen) // TODO: unlikely
+					return current_node_with_type;
+
+				// Check if prefix matches key part
+				if (memcmp(n->prefix, key, prefixLen) != 0)
+					return current_node_with_type;
+
+				key += prefixLen;
+				keyLen -= prefixLen;
+			}
+
+			// If no key left, current node is the match
+			if (keyLen == 0)
+				return current_node_with_type;
+
+			// Continue descending
+			current_node_with_type = get_child(current_node_with_type, *key);
+
+			// Jumping to the child means we use a character from a key
+			key++;
+			keyLen--;
+		}
+
+		return current_node_with_type;
+	}
+
+	node_leaf* find_leaf(const uint8_t* key, size_t keyLen) const
 	{
 		assert(keyLen != 0);
 
@@ -303,15 +360,14 @@ public:
 				// Check if prefix matches key part
 				if (memcmp(n->prefix, key, prefixLen) != 0)
 					return NULL;
+
 				key += prefixLen;
 				keyLen -= prefixLen;
 			}
 
-			// If no key left
+			// If no key left, current node is the match
 			if (keyLen == 0)
-			{
-				return current_node_with_type.is_node_leaf() ? current_node_with_type.get_node<node_leaf>() : NULL;
-			}
+				return current_node_with_type.is_node_leaf() ? current_node_with_type.get_node<node_leaf>() : NULL;;
 
 			// Continue descending
 			current_node_with_type = get_child(current_node_with_type, *key);
@@ -330,8 +386,7 @@ public:
 
 		if (!root_.is_valid()) // TODO: unlikely
 		{
-			node_leaf* nleaf = add_leaf(NULL, key, keyLen, value);
-			root_ = nleaf;
+			node_leaf* nleaf = add_leaf(&root_, key, keyLen, value);
 			return std::make_pair(nleaf, true);
 		}
 
@@ -392,6 +447,19 @@ public:
 			key++;
 			keyLen--;
 		}
+	}
+
+	void erase(const uint8_t* key, size_t keyLen)
+	{
+		node* found_node = find(key, keyLen);
+		erase(found_node);
+	}
+
+	node_leaf* erase(node* n)
+	{
+		
+
+		return NULL;
 	}
 
 private:
@@ -560,7 +628,7 @@ private:
 	}
 
 	template<typename TNode>
-	static bool try_add_child(node_ptr_with_type* nptr, node_ptr_with_type childptr, uint8_t key)
+	bool try_add_child(node_ptr_with_type* nptr, node_ptr_with_type childptr, uint8_t key)
 	{
 		if (!nptr->is_node_type<TNode>())
 			return false;
@@ -571,10 +639,15 @@ private:
 			return true;
 
 		// Grow to larger node and add new child
-		typename grow_policy<TNode>::grow_type* ngrown = grow_policy<TNode>::copy_construct_node(*ntyped);
+		typedef typename grow_policy<TNode>::grow_type TNodeGrow;
+		TNodeGrow* ngrown = grow_policy<TNode>::copy_construct_node(*ntyped);
 		ngrown->add_child(childptr, key);
 		// Delete old node
 		destruct_node_n(ntyped);
+#ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
+		node_stats_[TNodeGrow::traits::kStatsIndex]++;
+		node_stats_[TNode::traits::kStatsIndex]--;
+#endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 
 		// Overwrite old reference
 		*nptr = ngrown;
@@ -605,6 +678,7 @@ private:
 		node_ptr parent = parent_node != NULL ? parent_node->get_raw_node() : NULL;
 
 		// In case the key is large than prefix length, we create intermediate nodes which can contain the full key.
+		// The nodes can hold all the key, but leave one character for the leaf
 		node_4* lastSplitNode4 = NULL;
 		while (keyLen > node::kMaxPrefixLength + 1)
 		{
@@ -613,15 +687,30 @@ private:
 			{
 				newSplitNode = construct_raw_node_4(lastSplitNode4, key + 1, node::kMaxPrefixLength);
 				lastSplitNode4->add_child(newSplitNode, *key);
+
+				key += node::kMaxPrefixLength + 1;
+				keyLen -= node::kMaxPrefixLength + 1;
 			}
 			else if (parent != NULL)
 			{
 				newSplitNode = construct_raw_node_4(*parent_node, key + 1, node::kMaxPrefixLength);
 				add_child(parent_node, newSplitNode, *key);
+
+				key += node::kMaxPrefixLength + 1;
+				keyLen -= node::kMaxPrefixLength + 1;
+			}
+			else
+			{
+				newSplitNode = construct_raw_node_4(node_ptr_with_type(), key, node::kMaxPrefixLength);
+				*parent_node = newSplitNode;
+
+				key += node::kMaxPrefixLength;
+				keyLen -= node::kMaxPrefixLength;
 			}
 
-			key += node::kMaxPrefixLength + 1;
-			keyLen -= node::kMaxPrefixLength + 1;
+#ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
+			node_stats_[node_4_traits::kStatsIndex]++;
+#endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 
 			lastSplitNode4 = newSplitNode;
 		}
@@ -640,7 +729,11 @@ private:
 		else
 		{
 			leafNode = construct_raw_leaf(node_ptr_with_type(), key, (uint8_t)keyLen, value);
+			*parent_node = leafNode;
 		}
+#ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
+		node_stats_[node_leaf_traits::kStatsIndex]++;
+#endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 
 		size_++;
 
@@ -655,6 +748,10 @@ private:
 
 		// Create a split new node with common prefix
 		node_4* newSplitNode = construct_raw_node_4(n->parent, key, different_key_pos);
+#ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
+		node_stats_[node_4_traits::kStatsIndex]++;
+#endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
+
 		// Move the old node to the new node as a child
 		n->parent = newSplitNode;
 		newSplitNode->add_child(*node_to_split, n->prefix[different_key_pos]);
@@ -703,6 +800,10 @@ private:
 	// Tree depth, maximum key length
 	size_t depth_;
 	//allocator alloc;
+
+#ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
+	size_t node_stats_[5];
+#endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 };
 
 // TKey can be:
@@ -739,7 +840,7 @@ public:
 
 	iterator find(const TKey& key) const
 	{
-		const node_leaf* n = base_tree::find(reinterpret_cast<const uint8_t*>(&key), sizeof(key));
+		node_leaf* n = base_tree::find_leaf(reinterpret_cast<const uint8_t*>(&key), sizeof(key));
 		return iterator(n);
 	}
 };
@@ -775,7 +876,43 @@ public:
 
 	iterator find(const char* key) const
 	{
-		const node_leaf* n = base_tree::find(reinterpret_cast<const uint8_t*>(key), strlen(key) + 1);
+		node_leaf* n = base_tree::find_leaf(reinterpret_cast<const uint8_t*>(key), strlen(key) + 1);
+		return iterator(n);
+	}
+};
+
+// const std::string& specialization
+template<typename TValue>
+class adaptive_radix_tree<std::string, TValue> : base_adaptive_radix_tree<TValue>
+{
+public:
+	typedef base_adaptive_radix_tree<TValue> base_tree;
+	typedef base_adaptive_radix_tree<TValue>::iterator iterator;
+
+	adaptive_radix_tree()
+		: base_tree()
+	{
+	}
+
+	size_t size() const
+	{
+		return base_tree::size();
+	}
+
+	iterator end() const
+	{
+		return iterator();
+	}
+
+	std::pair<iterator, bool> insert(const std::string& key, const TValue& value)
+	{
+		std::pair<node_leaf*, bool> result = base_tree::insert(reinterpret_cast<const uint8_t*>(key.c_str()), key.size() + 1, value);
+		return std::pair<iterator, bool>(iterator(result.first), result.second);
+	}
+
+	iterator find(const std::string& key) const
+	{
+		node_leaf* n = base_tree::find_leaf(reinterpret_cast<const uint8_t*>(key.c_str()), key.size() + 1);
 		return iterator(n);
 	}
 };

@@ -95,7 +95,7 @@ struct IntToIntAdaptiveRadixTreeTest : public ::testing::Test
 	}
 
 	typedef adaptive_radix_tree<int, int> tree_int_int;
-	adaptive_radix_tree<int, int> tree_int_int_;
+	tree_int_int tree_int_int_;
 };
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, Constructor_ConstructEmptyTree)
