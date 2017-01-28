@@ -1,5 +1,6 @@
 #include "gtest/gtest.h"
 #include "adaptive_radix_tree.h"
+#include "simple_bench.h"
 
 #include <vector>
 
@@ -152,17 +153,23 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
 	// This is to test low-level nodes promotion when prefix path is not changing much.
 	FillIntKeysWithGenerator<IncrementLowBitsKeyGenerator<4> >(keys, 2 * 256 * 256);
 
-	for (size_t i = 0; i < keys.size(); ++i)
+	TIME_AUTO("insert")
 	{
-		tree_int_int_.insert(keys[i], i);
-		EXPECT_EQ(i + 1, tree_int_int_.size());
+		for (size_t i = 0; i < keys.size(); ++i)
+		{
+			tree_int_int_.insert(keys[i], i);
+			EXPECT_EQ(i + 1, tree_int_int_.size());
+		}
 	}
 
-	for (size_t i = 0; i < keys.size(); ++i)
+	TIME_AUTO("find")
 	{
-		tree_int_int::iterator findIt = tree_int_int_.find(keys[i]);
-		EXPECT_TRUE(findIt != tree_int_int_.end());
-		EXPECT_EQ(i, findIt.second);
+		for (size_t i = 0; i < keys.size(); ++i)
+		{
+			tree_int_int::iterator findIt = tree_int_int_.find(keys[i]);
+			EXPECT_TRUE(findIt != tree_int_int_.end());
+			EXPECT_EQ(i, findIt.second);
+		}
 	}
 }
 
@@ -173,17 +180,23 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256_ForwardKey)
 	// This is to test top-level nodes promotion.
 	FillIntKeysWithGenerator<IncrementHighBitsKeyGenerator<4> >(keys, 2 * 256 * 256);
 
-	for (size_t i = 0; i < keys.size(); ++i)
+	TIME_AUTO("insert")
 	{
-		tree_int_int_.insert(keys[i], i);
-		EXPECT_EQ(i + 1, tree_int_int_.size());
+		for (size_t i = 0; i < keys.size(); ++i)
+		{
+			tree_int_int_.insert(keys[i], i);
+			EXPECT_EQ(i + 1, tree_int_int_.size());
+		}
 	}
 
-	for (size_t i = 0; i < keys.size(); ++i)
+	TIME_AUTO("find")
 	{
-		tree_int_int::iterator findIt = tree_int_int_.find(keys[i]);
-		EXPECT_TRUE(findIt != tree_int_int_.end());
-		EXPECT_EQ(i, findIt.second);
+		for (size_t i = 0; i < keys.size(); ++i)
+		{
+			tree_int_int::iterator findIt = tree_int_int_.find(keys[i]);
+			EXPECT_TRUE(findIt != tree_int_int_.end());
+			EXPECT_EQ(i, findIt.second);
+		}
 	}
 }
 
