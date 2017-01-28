@@ -31,14 +31,15 @@ include_directories(SYSTEM
 
 add_executable(art-unittest
 	${PROJECT_SOURCE_DIR}/include/adaptive_radix_tree.h
+	${PROJECT_SOURCE_DIR}/test/simple_bench.h
 	${PROJECT_SOURCE_DIR}/test/int_to_int-tests.cpp
 	${PROJECT_SOURCE_DIR}/test/string_to_int-tests.cpp
 )
 
 configure_file(${PROJECT_SOURCE_DIR}/test/words.txt ${CMAKE_BINARY_DIR}/words.txt COPYONLY)
 configure_file(${PROJECT_SOURCE_DIR}/test/words.txt words.txt COPYONLY)
-configure_file(${PROJECT_SOURCE_DIR}/test/words.txt ${CMAKE_BINARY_DIR}/uuid.txt COPYONLY)
-configure_file(${PROJECT_SOURCE_DIR}/test/words.txt uuid.txt COPYONLY)
+configure_file(${PROJECT_SOURCE_DIR}/test/uuid.txt ${CMAKE_BINARY_DIR}/uuid.txt COPYONLY)
+configure_file(${PROJECT_SOURCE_DIR}/test/uuid.txt uuid.txt COPYONLY)
 
 add_subdirectory( ${GTEST_DIR}/googletest )
 
