@@ -3,6 +3,7 @@
 #include "simple_bench.h"
 
 #include <vector>
+#include <unordered_map>
 
 
 // Generate keys of the specified length incrementing from last bits
@@ -151,7 +152,7 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
 	std::vector<int> keys;
 	// Here we test tree in configuration root-0/1-n1-n2, where nN nodes can grow.
 	// This is to test low-level nodes promotion when prefix path is not changing much.
-	FillIntKeysWithGenerator<IncrementLowBitsKeyGenerator<4> >(keys, 2 * 256 * 256);
+	FillIntKeysWithGenerator<IncrementLowBitsKeyGenerator<4> >(keys, 256 * 256 * 256);
 
 	TIME_AUTO("insert")
 	{
@@ -169,6 +170,27 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
 			tree_int_int::iterator findIt = tree_int_int_.find(keys[i]);
 			EXPECT_TRUE(findIt != tree_int_int_.end());
 			EXPECT_EQ(i, findIt.second);
+		}
+	}
+
+
+	std::unordered_map<int, int> unordered_map_tree;
+	TIME_AUTO("unordered_map_insert")
+	{
+		for (size_t i = 0; i < keys.size(); ++i)
+		{
+			unordered_map_tree.insert(std::make_pair(keys[i], i));
+			EXPECT_EQ(i + 1, unordered_map_tree.size());
+		}
+	}
+
+	TIME_AUTO("unordered_map_find")
+	{
+		for (size_t i = 0; i < keys.size(); ++i)
+		{
+			std::unordered_map<int, int>::iterator findIt = unordered_map_tree.find(keys[i]);
+			EXPECT_TRUE(findIt != unordered_map_tree.end());
+			EXPECT_EQ(i, findIt->second);
 		}
 	}
 }
