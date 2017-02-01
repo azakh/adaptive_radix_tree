@@ -1,9 +1,12 @@
 #include "gtest/gtest.h"
 #include "adaptive_radix_tree.h"
+#include "base_fixture.h"
 #include "simple_bench.h"
 
 #include <vector>
+
 #include <unordered_map>
+#include "sparsehash/dense_hash_map"
 
 
 // Generate keys of the specified length incrementing from last bits
@@ -72,18 +75,10 @@ union Char4ToInt
 	int intValue;
 };
 
-struct IntToIntAdaptiveRadixTreeTest : public ::testing::Test
+struct IntToIntAdaptiveRadixTreeTest : AdaptiveRadixTreeTest<int, int>
 {
-	IntToIntAdaptiveRadixTreeTest()
-	{
-	}
-
-	~IntToIntAdaptiveRadixTreeTest()
-	{
-	}
-
 	template<class TKeyGenerator>
-	void FillIntKeysWithGenerator(std::vector<int>& keys, size_t count)
+	static void FillIntKeysWithGenerator(std::vector<int>& keys, size_t count)
 	{
 		keys.resize(count);
 
@@ -95,54 +90,51 @@ struct IntToIntAdaptiveRadixTreeTest : public ::testing::Test
 			gen.Next(conv.charValue);
 		}
 	}
-
-	typedef adaptive_radix_tree<int, int> tree_int_int;
-	tree_int_int tree_int_int_;
 };
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, Constructor_ConstructEmptyTree)
 {
-	EXPECT_EQ(0, tree_int_int_.size());
+	EXPECT_EQ(0, tree_.size());
 }
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_OnePair_CreatesOneNode)
 {
-	std::pair<tree_int_int::iterator, bool> result = tree_int_int_.insert(0, -1);
-	EXPECT_EQ(1, tree_int_int_.size());
+	std::pair<tree::iterator, bool> result = tree_.insert(0, -1);
+	EXPECT_EQ(1, tree_.size());
 	EXPECT_EQ(true, result.second);
 	EXPECT_EQ(-1, result.first.second);
 }
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_WithExistingKey_ReturnsExistingNode)
 {
-	tree_int_int_.insert(0, -1);
-	std::pair<tree_int_int::iterator, bool> result = tree_int_int_.insert(0, -1);
-	EXPECT_EQ(1, tree_int_int_.size());
+	tree_.insert(0, -1);
+	std::pair<tree::iterator, bool> result = tree_.insert(0, -1);
+	EXPECT_EQ(1, tree_.size());
 	EXPECT_EQ(false, result.second);
 	EXPECT_EQ(-1, result.first.second);
 }
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_TwoPairs_SplitsRootNode)
 {
-	tree_int_int_.insert(0, -1);
+	tree_.insert(0, -1);
 
 	Char4ToInt secondKey("\0\x0f\0\0");
-	std::pair<tree_int_int::iterator, bool> result = tree_int_int_.insert(secondKey.intValue, 0);
-	EXPECT_EQ(2, tree_int_int_.size());
+	std::pair<tree::iterator, bool> result = tree_.insert(secondKey.intValue, 0);
+	EXPECT_EQ(2, tree_.size());
 	EXPECT_EQ(true, result.second);
 	EXPECT_EQ(0, result.first.second);
 }
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ThreePairs_AddsNodeToRoot)
 {
-	tree_int_int_.insert(0, 0);
+	tree_.insert(0, 0);
 
 	Char4ToInt secondKey("\0\x0f\0\0");
-	tree_int_int_.insert(secondKey.intValue, 1);
+	tree_.insert(secondKey.intValue, 1);
 
 	Char4ToInt thirdKey("\0\x01\0\0");
-	std::pair<tree_int_int::iterator, bool> result = tree_int_int_.insert(thirdKey.intValue, 3);
-	EXPECT_EQ(3, tree_int_int_.size());
+	std::pair<tree::iterator, bool> result = tree_.insert(thirdKey.intValue, 3);
+	EXPECT_EQ(3, tree_.size());
 	EXPECT_EQ(true, result.second);
 	EXPECT_EQ(3, result.first.second);
 }
@@ -158,17 +150,17 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
 	{
 		for (size_t i = 0; i < keys.size(); ++i)
 		{
-			tree_int_int_.insert(keys[i], i);
-			EXPECT_EQ(i + 1, tree_int_int_.size());
+			tree_.insert(keys[i], i);
+			EXPECT_EQ(i + 1, tree_.size());
 		}
 	}
-
+	FlushCache();
 	TIME_AUTO("find")
 	{
 		for (size_t i = 0; i < keys.size(); ++i)
 		{
-			tree_int_int::iterator findIt = tree_int_int_.find(keys[i]);
-			EXPECT_TRUE(findIt != tree_int_int_.end());
+			tree::iterator findIt = tree_.find(keys[i]);
+			//EXPECT_TRUE(findIt != tree_.end());
 			EXPECT_EQ(i, findIt.second);
 		}
 	}
@@ -183,13 +175,35 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
 			EXPECT_EQ(i + 1, unordered_map_tree.size());
 		}
 	}
-
+	FlushCache();
 	TIME_AUTO("unordered_map_find")
 	{
 		for (size_t i = 0; i < keys.size(); ++i)
 		{
 			std::unordered_map<int, int>::iterator findIt = unordered_map_tree.find(keys[i]);
-			EXPECT_TRUE(findIt != unordered_map_tree.end());
+			//EXPECT_TRUE(findIt != unordered_map_tree.end());
+			EXPECT_EQ(i, findIt->second);
+		}
+	}
+
+
+	google::dense_hash_map<int, int> dense_map_tree;
+	dense_map_tree.set_empty_key(0xFFFFFFFF);
+	TIME_AUTO("dense_map_insert")
+	{
+		for (size_t i = 0; i < keys.size(); ++i)
+		{
+			dense_map_tree.insert(std::make_pair(keys[i], i));
+			EXPECT_EQ(i + 1, dense_map_tree.size());
+		}
+	}
+	FlushCache();
+	TIME_AUTO("dense_map_find")
+	{
+		for (size_t i = 0; i < keys.size(); ++i)
+		{
+			google::dense_hash_map<int, int>::iterator findIt = dense_map_tree.find(keys[i]);
+			//EXPECT_TRUE(findIt != dense_map_tree.end());
 			EXPECT_EQ(i, findIt->second);
 		}
 	}
@@ -206,8 +220,8 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256_ForwardKey)
 	{
 		for (size_t i = 0; i < keys.size(); ++i)
 		{
-			tree_int_int_.insert(keys[i], i);
-			EXPECT_EQ(i + 1, tree_int_int_.size());
+			tree_.insert(keys[i], i);
+			EXPECT_EQ(i + 1, tree_.size());
 		}
 	}
 
@@ -215,8 +229,8 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256_ForwardKey)
 	{
 		for (size_t i = 0; i < keys.size(); ++i)
 		{
-			tree_int_int::iterator findIt = tree_int_int_.find(keys[i]);
-			EXPECT_TRUE(findIt != tree_int_int_.end());
+			tree::iterator findIt = tree_.find(keys[i]);
+			EXPECT_TRUE(findIt != tree_.end());
 			EXPECT_EQ(i, findIt.second);
 		}
 	}
@@ -224,10 +238,10 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256_ForwardKey)
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, find)
 {
-	tree_int_int_.insert(0, -1);
-	EXPECT_EQ(1, tree_int_int_.size());
+	tree_.insert(0, -1);
+	EXPECT_EQ(1, tree_.size());
 
-	tree_int_int::iterator it = tree_int_int_.find(0);
-	EXPECT_TRUE(it != tree_int_int_.end());
+	tree::iterator it = tree_.find(0);
+	EXPECT_TRUE(it != tree_.end());
 	EXPECT_EQ(-1, it.second);
 }

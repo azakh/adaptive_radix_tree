@@ -27,11 +27,13 @@ include_directories(SYSTEM
 	include
 	${GTEST_DIR}/googletest/include
 	${GTEST_DIR}/include
+	external/sparsehash/src
 )
 
 add_executable(art-unittest
 	${PROJECT_SOURCE_DIR}/include/adaptive_radix_tree.h
 	${PROJECT_SOURCE_DIR}/test/simple_bench.h
+	${PROJECT_SOURCE_DIR}/test/base_fixture.h
 	${PROJECT_SOURCE_DIR}/test/int_to_int-tests.cpp
 	${PROJECT_SOURCE_DIR}/test/string_to_int-tests.cpp
 )
