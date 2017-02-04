@@ -7,6 +7,7 @@
 
 #include <unordered_map>
 #include "sparsehash/dense_hash_map"
+#include "sparsehash/sparse_hash_map"
 
 
 // Generate keys of the specified length incrementing from last bits
@@ -75,20 +76,23 @@ union Char4ToInt
 	int intValue;
 };
 
-struct IntToIntAdaptiveRadixTreeTest : AdaptiveRadixTreeTest<int, int>
+struct IntToIntAdaptiveRadixTreeTest : AdaptiveRadixTreeTest<size_t, int>
 {
 	template<class TKeyGenerator>
 	static void FillIntKeysWithGenerator(std::vector<int>& keys, size_t count)
 	{
-		keys.resize(count);
+		keys.resize(count * 4);
 
 		TKeyGenerator gen;
 		Char4ToInt conv;
-		for (size_t i = 0; i < count; ++i)
+		for (size_t i = 0; i < keys.size(); ++i)
 		{
 			keys[i] = conv.intValue;
 			gen.Next(conv.charValue);
 		}
+
+		std::random_shuffle(keys.begin(), keys.end());
+		keys.resize(count);
 	}
 };
 
@@ -102,7 +106,7 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_OnePair_CreatesOneNode)
 	std::pair<tree::iterator, bool> result = tree_.insert(0, -1);
 	EXPECT_EQ(1, tree_.size());
 	EXPECT_EQ(true, result.second);
-	EXPECT_EQ(-1, result.first.second);
+	EXPECT_EQ(-1, result.first->value);
 }
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_WithExistingKey_ReturnsExistingNode)
@@ -111,7 +115,7 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_WithExistingKey_ReturnsExistingNode
 	std::pair<tree::iterator, bool> result = tree_.insert(0, -1);
 	EXPECT_EQ(1, tree_.size());
 	EXPECT_EQ(false, result.second);
-	EXPECT_EQ(-1, result.first.second);
+	EXPECT_EQ(-1, result.first->value);
 }
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_TwoPairs_SplitsRootNode)
@@ -122,7 +126,7 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_TwoPairs_SplitsRootNode)
 	std::pair<tree::iterator, bool> result = tree_.insert(secondKey.intValue, 0);
 	EXPECT_EQ(2, tree_.size());
 	EXPECT_EQ(true, result.second);
-	EXPECT_EQ(0, result.first.second);
+	EXPECT_EQ(0, result.first->value);
 }
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ThreePairs_AddsNodeToRoot)
@@ -136,7 +140,7 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ThreePairs_AddsNodeToRoot)
 	std::pair<tree::iterator, bool> result = tree_.insert(thirdKey.intValue, 3);
 	EXPECT_EQ(3, tree_.size());
 	EXPECT_EQ(true, result.second);
-	EXPECT_EQ(3, result.first.second);
+	EXPECT_EQ(3, result.first->value);
 }
 
 TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
@@ -144,7 +148,7 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
 	std::vector<int> keys;
 	// Here we test tree in configuration root-0/1-n1-n2, where nN nodes can grow.
 	// This is to test low-level nodes promotion when prefix path is not changing much.
-	FillIntKeysWithGenerator<IncrementLowBitsKeyGenerator<4> >(keys, 256 * 256 * 256);
+	FillIntKeysWithGenerator<IncrementLowBitsKeyGenerator<4> >(keys, 16 * 1024 * 1024);
 
 	TIME_AUTO("insert")
 	{
@@ -161,50 +165,53 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256)
 		{
 			tree::iterator findIt = tree_.find(keys[i]);
 			//EXPECT_TRUE(findIt != tree_.end());
-			EXPECT_EQ(i, findIt.second);
+			EXPECT_EQ(i, findIt->value);
 		}
 	}
 
 
-	std::unordered_map<int, int> unordered_map_tree;
-	TIME_AUTO("unordered_map_insert")
 	{
-		for (size_t i = 0; i < keys.size(); ++i)
+		std::unordered_map<int, int> unordered_map_tree;
+		TIME_AUTO("unordered_map_insert")
 		{
-			unordered_map_tree.insert(std::make_pair(keys[i], i));
-			EXPECT_EQ(i + 1, unordered_map_tree.size());
+			for (size_t i = 0; i < keys.size(); ++i)
+			{
+				unordered_map_tree.insert(std::make_pair(keys[i], i));
+				EXPECT_EQ(i + 1, unordered_map_tree.size());
+			}
 		}
-	}
-	FlushCache();
-	TIME_AUTO("unordered_map_find")
-	{
-		for (size_t i = 0; i < keys.size(); ++i)
+		FlushCache();
+		TIME_AUTO("unordered_map_find")
 		{
-			std::unordered_map<int, int>::iterator findIt = unordered_map_tree.find(keys[i]);
-			//EXPECT_TRUE(findIt != unordered_map_tree.end());
-			EXPECT_EQ(i, findIt->second);
+			for (size_t i = 0; i < keys.size(); ++i)
+			{
+				std::unordered_map<int, int>::iterator findIt = unordered_map_tree.find(keys[i]);
+				//EXPECT_TRUE(findIt != unordered_map_tree.end());
+				EXPECT_EQ(i, findIt->second);
+			}
 		}
 	}
 
-
-	google::dense_hash_map<int, int> dense_map_tree;
-	dense_map_tree.set_empty_key(0xFFFFFFFF);
-	TIME_AUTO("dense_map_insert")
 	{
-		for (size_t i = 0; i < keys.size(); ++i)
+		google::dense_hash_map<int, int> dense_map_tree;
+		dense_map_tree.set_empty_key(0xFFFFFFFF);
+		TIME_AUTO("dense_map_insert")
 		{
-			dense_map_tree.insert(std::make_pair(keys[i], i));
-			EXPECT_EQ(i + 1, dense_map_tree.size());
+			for (size_t i = 0; i < keys.size(); ++i)
+			{
+				dense_map_tree.insert(std::make_pair(keys[i], i));
+				EXPECT_EQ(i + 1, dense_map_tree.size());
+			}
 		}
-	}
-	FlushCache();
-	TIME_AUTO("dense_map_find")
-	{
-		for (size_t i = 0; i < keys.size(); ++i)
+		FlushCache();
+		TIME_AUTO("dense_map_find")
 		{
-			google::dense_hash_map<int, int>::iterator findIt = dense_map_tree.find(keys[i]);
-			//EXPECT_TRUE(findIt != dense_map_tree.end());
-			EXPECT_EQ(i, findIt->second);
+			for (size_t i = 0; i < keys.size(); ++i)
+			{
+				google::dense_hash_map<int, int>::iterator findIt = dense_map_tree.find(keys[i]);
+				//EXPECT_TRUE(findIt != dense_map_tree.end());
+				EXPECT_EQ(i, findIt->second);
+			}
 		}
 	}
 }
@@ -231,7 +238,7 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, insert_ChildGrowsFrom4to256_ForwardKey)
 		{
 			tree::iterator findIt = tree_.find(keys[i]);
 			EXPECT_TRUE(findIt != tree_.end());
-			EXPECT_EQ(i, findIt.second);
+			EXPECT_EQ(i, findIt->value);
 		}
 	}
 }
@@ -243,5 +250,5 @@ TEST_F(IntToIntAdaptiveRadixTreeTest, find)
 
 	tree::iterator it = tree_.find(0);
 	EXPECT_TRUE(it != tree_.end());
-	EXPECT_EQ(-1, it.second);
+	EXPECT_EQ(-1, it->value);
 }

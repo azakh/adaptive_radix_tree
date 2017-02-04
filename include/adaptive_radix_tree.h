@@ -59,8 +59,10 @@ protected:
 			: ptr(reinterpret_cast<node_ptr>((reinterpret_cast<size_t>(n) | TNode::traits::kPointerEmbeddedType)))
 		{}
 
-		node_ptr get_raw_node() const { return reinterpret_cast<node_ptr>((reinterpret_cast<size_t>(ptr) & ~kPointerEmbeddedTypeMask)); }
-		size_t get_node_type() const { return (reinterpret_cast<size_t>(ptr) & kPointerEmbeddedTypeMask); }
+		bool is_valid() const
+		{
+			return ptr != NULL;
+		}
 
 		template<typename TNode>
 		bool is_node_type() const
@@ -73,11 +75,25 @@ protected:
 			return (reinterpret_cast<size_t>(ptr) & kPointerEmbeddedTypeMask) == node_leaf::traits::kPointerEmbeddedType;
 		}
 
+		size_t get_node_type() const
+		{
+			return (reinterpret_cast<size_t>(ptr) & kPointerEmbeddedTypeMask);
+		}
+
+		node_ptr get_raw_node() const
+		{
+			return reinterpret_cast<node_ptr>((reinterpret_cast<size_t>(ptr) & ~kPointerEmbeddedTypeMask));
+		}
+
 		template<typename TNode>
 		TNode* get_node() const
 		{
-			size_t p = reinterpret_cast<size_t>(ptr) & ~kPointerEmbeddedTypeMask;
-			return reinterpret_cast<TNode*>(p);
+			return reinterpret_cast<TNode*>((reinterpret_cast<size_t>(ptr) & ~kPointerEmbeddedTypeMask));
+		}
+
+		node_ptr operator->() const
+		{
+			return get_raw_node();
 		}
 
 		operator node_ptr() const
@@ -85,33 +101,55 @@ protected:
 			return get_raw_node();
 		}
 
-		bool is_valid() const
+		void set_parent(node_ptr_with_type p)
 		{
-			return ptr != NULL;
+			//if (!is_node_leaf())
+			//	get_raw_node()->set_parent(p);
 		}
+
 
 		node_ptr ptr;
 	};
 
+	// Leaf node. Only value.
+	struct node_leaf
+	{
+		typedef node_leaf_traits traits;
+
+		explicit node_leaf(const TValue& v) : value(v) {}
+
+		void set_parent(node_ptr_with_type) {}
+
+		TValue value;
+	};
 
 	// Base node. Contains key prefix and children data.
+#pragma pack(push, 1)
 	struct node
 	{
-		node(const uint8_t* key, uint8_t keyLen)
+		explicit node(const uint8_t* key, uint8_t keyLen)
 			: prefixLength(keyLen)
 			, childrenCount(0)
 			, parent()
 		{
+			uint8_t* p = prefix;
+			//while (keyLen-- > 0) *p++ = *key++;
 			memcpy(prefix, key, keyLen);
 		}
 
-		enum { kMaxPrefixLength = 30 };
+		enum { kMaxPrefixLength = 14 };
 
+		void set_parent(node_ptr_with_type p)
+		{
+			//parent = p;
+		}
+
+		node_ptr_with_type parent;
+		uint8_t childrenCount;
 		uint8_t prefixLength;
 		uint8_t prefix[kMaxPrefixLength];
-		uint8_t childrenCount;
-		node_ptr_with_type parent;
 	};
+#pragma pack(pop)
 
 	// Simple indexed node template.
 	// Dictionary-like storage of child nodes.
@@ -121,7 +159,7 @@ protected:
 	{
 		typedef TNodeTraits traits;
 
-		node_indexed(const uint8_t* key, uint8_t keyLen)
+		explicit node_indexed(const uint8_t* key, uint8_t keyLen)
 			: node(key, keyLen)
 		{
 		}
@@ -146,22 +184,8 @@ protected:
 			return NULL;
 		}
 
-		template<typename TNode>
-		bool add_child(TNode* n_ptr, uint8_t k)
-		{
-			if (childrenCount >= traits::kMaxChildrenCount)
-				return false;
-
-			keys[childrenCount] = k;
-			children[childrenCount] = n_ptr;
-			childrenCount++;
-
-			n_ptr->parent = this;
-
-			return true;
-		}
-
-		bool add_child(node_ptr_with_type n, uint8_t k)
+		template<typename T>
+		bool add_child(T n, uint8_t k)
 		{
 			if (childrenCount >= traits::kMaxChildrenCount)
 				return false;
@@ -170,7 +194,7 @@ protected:
 			children[childrenCount] = n;
 			childrenCount++;
 
-			n.get_raw_node()->parent = this;
+			n->set_parent(this);
 
 			return true;
 		}
@@ -186,7 +210,7 @@ protected:
 	{
 		typedef node_48_traits traits;
 
-		node_48(const uint8_t* key, uint8_t keyLen)
+		explicit node_48(const uint8_t* key, uint8_t keyLen)
 			: node(key, keyLen)
 		{
 			memset(keys, kInvalidIndex, sizeof(keys));
@@ -202,22 +226,8 @@ protected:
 			return keys[k] != kInvalidIndex ? &children[keys[k]] : NULL;
 		}
 
-		template<typename TNode>
-		bool add_child(TNode* n_ptr, uint8_t k)
-		{
-			if (childrenCount >= traits::kMaxChildrenCount)
-				return false;
-
-			keys[k] = childrenCount;
-			children[childrenCount] = n_ptr;
-			childrenCount++;
-
-			n_ptr->parent = this;
-
-			return true;
-		}
-
-		bool add_child(node_ptr_with_type n, uint8_t k)
+		template<typename T>
+		bool add_child(T n, uint8_t k)
 		{
 			if (childrenCount >= traits::kMaxChildrenCount)
 				return false;
@@ -226,7 +236,7 @@ protected:
 			children[childrenCount] = n;
 			childrenCount++;
 
-			n.get_raw_node()->parent = this;
+			n->set_parent(this);
 
 			return true;
 		}
@@ -243,7 +253,7 @@ protected:
 	{
 		typedef node_256_traits traits;
 
-		node_256(const uint8_t* key, uint8_t keyLen)
+		explicit node_256(const uint8_t* key, uint8_t keyLen)
 			: node(key, keyLen)
 		{
 			memset(children, 0, sizeof(children));
@@ -259,23 +269,13 @@ protected:
 			return &children[k];
 		}
 
-		template<typename TNode>
-		bool add_child(TNode* n_ptr, uint8_t k)
-		{
-			children[k] = n_ptr;
-			childrenCount++;
-
-			n_ptr->parent = this;
-
-			return true;
-		}
-
-		bool add_child(node_ptr_with_type n, uint8_t k)
+		template<typename T>
+		bool add_child(T n, uint8_t k)
 		{
 			children[k] = n;
 			childrenCount++;
 
-			n.get_raw_node()->parent = this;
+			n->set_parent(this);
 
 			return true;
 		}
@@ -283,42 +283,30 @@ protected:
 		node_ptr_with_type children[traits::kMaxChildrenCount];
 	};
 
-	// Leaf node. Only value.
-	struct node_leaf : node
-	{
-		typedef node_leaf_traits traits;
-
-		node_leaf(const uint8_t* key, uint8_t keyLen, const TValue& v)
-			: node(key, keyLen)
-			, value(v)
-		{
-		}
-
-		TValue value;
-	};
-
 public:
 	struct iterator
 	{
-		iterator() : cursor(), second(*static_cast<TValue*>(NULL)) {}
-		iterator(node_ptr_with_type c)
-			: cursor(c)
-			, second(cursor.get_node<node_leaf>()->value)
+		iterator() : leaf_() {}
+		iterator(node_leaf* leaf)
+			: leaf_(leaf)
 		{
-			assert(cursor.is_node_leaf());
 		}
 
 		bool operator== (const iterator& rhs) const
 		{
-			return cursor == rhs.cursor;
+			return leaf_ == rhs.leaf_;
 		}
 		bool operator!= (const iterator& rhs) const
 		{
 			return !(*this == rhs);
 		}
 
-		node_ptr_with_type cursor;
-		TValue& second;
+		node_leaf* operator->() const
+		{
+			return leaf_;
+		}
+
+		node_leaf* leaf_;
 	};
 
 	base_adaptive_radix_tree()
@@ -368,16 +356,16 @@ public:
 				keyLen -= prefixLen;
 			}
 
-			// If no key left, current node is the match
-			if (keyLen == 0)
-				return current_node_with_type.is_node_leaf() ? current_node_with_type.get_node<node_leaf>() : NULL;;
-
 			// Continue descending
 			current_node_with_type = get_child(current_node_with_type, *key);
 
 			// Jumping to the child means we use a character from a key
 			key++;
 			keyLen--;
+
+			// If no key left, current node is the match
+			if (keyLen == 0)
+				return current_node_with_type.is_node_leaf() ? current_node_with_type.get_node<node_leaf>() : NULL;;
 		}
 
 		return NULL;
@@ -405,7 +393,7 @@ public:
 			if (prefixLen != 0)
 			{
 				// Find out if there is common prefix for old node and new one
-				uint8_t common_key_lenght = (uint8_t)get_common_key_lenght(key, keyLen, n->prefix, n->prefixLength);
+				uint8_t common_key_lenght = (uint8_t)get_common_key_lenght(key, keyLen, n->prefix, prefixLen);
 				if (common_key_lenght < prefixLen)
 				{
 					// Key prefix has a partial match, meaning this node should be split
@@ -416,6 +404,20 @@ public:
 				key += prefixLen;
 				keyLen -= prefixLen;
 			}
+
+			// And continue descending
+			node_ptr_with_type* childptr = get_child_ptr(*current_node_with_type, *key);
+			if (childptr == NULL || !childptr->is_valid())
+			{
+				// No child, just add a new leaf
+				node_leaf* nleaf = add_leaf(current_node_with_type, key, keyLen, value);
+				return std::pair<node_leaf*, bool>(nleaf, true);
+			}
+
+			// Going deeper
+			current_node_with_type = childptr;
+			key++;
+			keyLen--;
 
 			// If no key left, we found an existing node.
 			if (keyLen == 0)
@@ -435,20 +437,6 @@ public:
 					return std::pair<node_leaf*, bool>(NULL, false);
 				}
 			}
-
-			// And continue descending
-			node_ptr_with_type* childptr = get_child_ptr(*current_node_with_type, *key);
-			if (childptr == NULL || !childptr->is_valid())
-			{
-				// No child, just add a new leaf
-				node_leaf* nleaf = add_leaf(current_node_with_type, key, keyLen, value);
-				return std::pair<node_leaf*, bool>(nleaf, true);
-			}
-
-			// Going deeper
-			current_node_with_type = childptr;
-			key++;
-			keyLen--;
 		}
 	}
 
@@ -468,17 +456,15 @@ public:
 private:
 	// Construct a leaf node with the specific parent and key (which should be <= node::kMaxPrefixLength)
 	// Setting parent here is faster than in add_child as we don't need to convert node_ptr_with_type to node_ptr.
-	static node_leaf* construct_raw_leaf(const uint8_t* key, uint8_t keyLen, const TValue& value)
+	static node_leaf* construct_raw_leaf(const TValue& value)
 	{
-		assert(keyLen <= node::kMaxPrefixLength);
-
 		// TODO: include valueAlignment into account
 		// TODO: Block allocator
 		// Allocate aligned node
-		node_leaf* n = reinterpret_cast<node_leaf*>(_aligned_malloc(sizeof(node_leaf), kNodeAlignment));
+		node_leaf* n = reinterpret_cast<node_leaf*>(malloc(sizeof(node_leaf)));
 		assert((reinterpret_cast<size_t>(n) & kPointerEmbeddedTypeMask) == 0);
 		// Construct
-		new (n) node_leaf(key, keyLen, value);
+		new (n) node_leaf(value);
 		return n;
 	}
 
@@ -489,7 +475,7 @@ private:
 
 		// TODO: Block allocator
 		// Allocate aligned node
-		TNode* n = reinterpret_cast<TNode*>(_aligned_malloc(sizeof(TNode), kNodeAlignment));
+		TNode* n = reinterpret_cast<TNode*>(malloc(sizeof(TNode)));
 		assert((reinterpret_cast<size_t>(n) & kPointerEmbeddedTypeMask) == 0);
 		// Construct
 		new (n) TNode(key, keyLen);
@@ -506,11 +492,11 @@ private:
 		{
 			node_16* n = construct_raw_node_n<node_16>(ncopy.prefix, ncopy.prefixLength);
 			n->childrenCount = ncopy.childrenCount;
-			n->parent = ncopy.parent;
 			memcpy(n->keys, ncopy.keys, ncopy.childrenCount);
 			memcpy(n->children, ncopy.children, ncopy.childrenCount * sizeof(ncopy.children[0]));
 			for (uint8_t i = 0; i < n->childrenCount; ++i)
-				n->children[i].get_raw_node()->parent = n;
+				n->children[i].set_parent(n);
+			n->set_parent(ncopy.parent);
 
 			return n;
 		}
@@ -523,11 +509,11 @@ private:
 		{
 			node_4* n = construct_raw_node_n<node_4>(ncopy.prefix, ncopy.prefixLength);
 			n->childrenCount = ncopy.childrenCount;
-			n->parent = ncopy.parent;
 			memcpy(n->keys, ncopy.keys, ncopy.childrenCount);
 			memcpy(n->children, ncopy.children, ncopy.childrenCount * sizeof(ncopy.children[0]));
 			for (uint8_t i = 0; i < n->childrenCount; ++i)
-				n->children[i].get_raw_node()->parent = n;
+				n->children[i].set_parent(n);
+			n->set_parent(ncopy.parent);
 
 			return n;
 		}
@@ -539,13 +525,13 @@ private:
 		{
 			node_48* n = construct_raw_node_n<node_48>(ncopy.prefix, ncopy.prefixLength);
 			n->childrenCount = ncopy.childrenCount;
-			n->parent = ncopy.parent;
 			for (uint8_t i = 0; i < ncopy.childrenCount; ++i)
 			{
 				n->keys[ncopy.keys[i]] = i;
 				n->children[i] = ncopy.children[i];
-				n->children[i].get_raw_node()->parent = n;
+				n->children[i].set_parent(n);
 			}
+			n->set_parent(ncopy.parent);
 
 			return n;
 		}
@@ -564,10 +550,10 @@ private:
 
 				n->keys[n->childrenCount] = i;
 				n->children[n->childrenCount] = ncopy.children[ncopy.keys[i]];
-				n->children[n->childrenCount].get_raw_node()->parent = n;
+				n->children[n->childrenCount].set_parent(n);
 				n->childrenCount++;
 			}
-			n->parent = ncopy.parent;
+			n->set_parent(ncopy.parent);
 
 			return n;
 		}
@@ -585,9 +571,9 @@ private:
 					continue;
 
 				n->children[i] = ncopy.children[ncopy.keys[i]];
-				n->children[i].get_raw_node()->parent = n;
+				n->children[i].set_parent(n);
 			}
-			n->parent = ncopy.parent;
+			n->set_parent(ncopy.parent);
 
 			return n;
 		}
@@ -606,10 +592,10 @@ private:
 
 				n->keys[i] = n->childrenCount;
 				n->children[n->childrenCount] = ncopy.children[i];
-				n->children[n->childrenCount].get_raw_node()->parent = n;
+				n->children[n->childrenCount].set_parent(n);
 				n->childrenCount++;
 			}
-			n->parent = ncopy.parent;
+			n->set_parent(ncopy.parent);
 
 			return n;
 		}
@@ -618,7 +604,7 @@ private:
 	template<typename TNode>
 	static void destruct_node_n(TNode* n)
 	{
-		_aligned_free(n);
+		free(n);
 	}
 
 	static node_4* construct_raw_node_4(const uint8_t* key, uint8_t keyLen) { return construct_raw_node_n<node_4>(key, keyLen); }
@@ -634,6 +620,7 @@ private:
 			n.is_node_type<node_48>() ? n.get_node<node_48>()->get_child(k) :
 			n.get_node<node_256>()->get_child(k);
 	}
+
 	static node_ptr_with_type* get_child_ptr(node_ptr_with_type n, uint8_t k)
 	{
 		assert(!n.is_node_leaf());
@@ -692,37 +679,47 @@ private:
 	// Add leaf node.
 	node_leaf* add_leaf(node_ptr_with_type* parent_node, const uint8_t* key, size_t keyLen, const TValue& value)
 	{
-		node_ptr parent = parent_node != NULL ? parent_node->get_raw_node() : NULL;
+		assert(keyLen > 0);
+
+		node_4* lastSplitNode4 = NULL;
+		if (!parent_node->is_valid())
+		{
+			const size_t nodeKeyLen = std::min<size_t>(keyLen - 1, node::kMaxPrefixLength);
+			lastSplitNode4 = construct_raw_node_4(key, nodeKeyLen);
+			*parent_node = lastSplitNode4;
+
+			key += nodeKeyLen;
+			keyLen -= nodeKeyLen;
+
+#ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
+			node_stats_[node_4_traits::kStatsIndex]++;
+#endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
+		}
 
 		// In case the key is large than prefix length, we create intermediate nodes which can contain the full key.
 		// The nodes can hold all the key, but leave one character for the leaf
-		node_4* lastSplitNode4 = NULL;
-		while (keyLen > node::kMaxPrefixLength + 1)
+		while (keyLen > 1)
 		{
 			node_4* newSplitNode;
 			if (lastSplitNode4 != NULL)
 			{
-				newSplitNode = construct_raw_node_4(key + 1, node::kMaxPrefixLength);
+				const size_t nodeKeyLen = std::min<size_t>(keyLen - 2, node::kMaxPrefixLength);
+				newSplitNode = construct_raw_node_4(key + 1, nodeKeyLen);
 				lastSplitNode4->add_child(newSplitNode, *key);
+				assert(get_child(lastSplitNode4, *key).get_raw_node() == newSplitNode);
 
-				key += node::kMaxPrefixLength + 1;
-				keyLen -= node::kMaxPrefixLength + 1;
-			}
-			else if (parent != NULL)
-			{
-				newSplitNode = construct_raw_node_4(key + 1, node::kMaxPrefixLength);
-				add_child(parent_node, newSplitNode, *key);
-
-				key += node::kMaxPrefixLength + 1;
-				keyLen -= node::kMaxPrefixLength + 1;
+				key += nodeKeyLen + 1;
+				keyLen -= nodeKeyLen + 1;
 			}
 			else
 			{
-				newSplitNode = construct_raw_node_4(key, node::kMaxPrefixLength);
-				*parent_node = newSplitNode;
+				const size_t nodeKeyLen = std::min<size_t>(keyLen - 2, node::kMaxPrefixLength);
+				newSplitNode = construct_raw_node_4(key + 1, nodeKeyLen);
+				add_child(parent_node, newSplitNode, *key);
+				assert(get_child(*parent_node, *key).get_raw_node() == newSplitNode);
 
-				key += node::kMaxPrefixLength;
-				keyLen -= node::kMaxPrefixLength;
+				key += nodeKeyLen + 1;
+				keyLen -= nodeKeyLen + 1;
 			}
 
 #ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
@@ -732,22 +729,22 @@ private:
 			lastSplitNode4 = newSplitNode;
 		}
 
+		assert(keyLen == 1);
+
 		node_leaf* leafNode;
 		if (lastSplitNode4 != NULL)
 		{
-			leafNode = construct_raw_leaf(key + 1, (uint8_t)(keyLen - 1), value);
+			leafNode = construct_raw_leaf(value);
 			lastSplitNode4->add_child(leafNode, *key);
-		}
-		else if (parent != NULL)
-		{
-			leafNode = construct_raw_leaf(key + 1, (uint8_t)(keyLen - 1), value);
-			add_child(parent_node, leafNode, *key);
+			assert(get_child(lastSplitNode4, *key).get_raw_node() == (void*)leafNode);
 		}
 		else
 		{
-			leafNode = construct_raw_leaf(key, (uint8_t)keyLen, value);
-			*parent_node = leafNode;
+			leafNode = construct_raw_leaf(value);
+			add_child(parent_node, leafNode, *key);
+			assert(get_child(*parent_node, *key).get_raw_node() == (void*)leafNode);
 		}
+
 #ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
 		node_stats_[node_leaf_traits::kStatsIndex]++;
 #endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS

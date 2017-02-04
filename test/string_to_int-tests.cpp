@@ -37,7 +37,7 @@ TEST_F(StringToIntAdaptiveRadixTreeTest, insert_OnePair_CreatesOneNode)
 	std::pair<tree::iterator, bool> result = tree_.insert("", -1);
 	EXPECT_EQ(1, tree_.size());
 	EXPECT_EQ(true, result.second);
-	EXPECT_EQ(-1, result.first.second);
+	EXPECT_EQ(-1, result.first->value);
 }
 
 TEST_F(StringToIntAdaptiveRadixTreeTest, insert_WithExistingKey_ReturnsExistingNode)
@@ -46,7 +46,7 @@ TEST_F(StringToIntAdaptiveRadixTreeTest, insert_WithExistingKey_ReturnsExistingN
 	std::pair<tree::iterator, bool> result = tree_.insert("", -1);
 	EXPECT_EQ(1, tree_.size());
 	EXPECT_EQ(false, result.second);
-	EXPECT_EQ(-1, result.first.second);
+	EXPECT_EQ(-1, result.first->value);
 }
 
 TEST_F(StringToIntAdaptiveRadixTreeTest, insert_TwoPairs_SplitsRootNode)
@@ -57,7 +57,7 @@ TEST_F(StringToIntAdaptiveRadixTreeTest, insert_TwoPairs_SplitsRootNode)
 	std::pair<tree::iterator, bool> result = tree_.insert(secondKey, 0);
 	EXPECT_EQ(2, tree_.size());
 	EXPECT_EQ(true, result.second);
-	EXPECT_EQ(0, result.first.second);
+	EXPECT_EQ(0, result.first->value);
 }
 
 TEST_F(StringToIntAdaptiveRadixTreeTest, insert_ThreePairs_AddsNodeToRoot)
@@ -71,7 +71,7 @@ TEST_F(StringToIntAdaptiveRadixTreeTest, insert_ThreePairs_AddsNodeToRoot)
 	std::pair<tree::iterator, bool> result = tree_.insert(thirdKey, 3);
 	EXPECT_EQ(3, tree_.size());
 	EXPECT_EQ(true, result.second);
-	EXPECT_EQ(3, result.first.second);
+	EXPECT_EQ(3, result.first->value);
 }
 
 TEST_F(StringToIntAdaptiveRadixTreeTest, insert_and_find_KeysFromWordsDictionary)
@@ -95,7 +95,7 @@ TEST_F(StringToIntAdaptiveRadixTreeTest, insert_and_find_KeysFromWordsDictionary
 		{
 			tree::iterator findIt = tree_.find(keys[i]);
 			//EXPECT_TRUE(findIt != tree_.end());
-			EXPECT_EQ(i, findIt.second);
+			EXPECT_EQ(i, findIt->value);
 		}
 	}
 
@@ -179,7 +179,7 @@ TEST_F(StringToIntAdaptiveRadixTreeTest, insert_and_find_KeysFromUUIDDictionary)
 		{
 			tree::iterator findIt = tree_.find(keys[i]);
 			//EXPECT_TRUE(findIt != tree_.end());
-			EXPECT_EQ(i, findIt.second);
+			EXPECT_EQ(i, findIt->value);
 		}
 	}
 
@@ -250,5 +250,5 @@ TEST_F(StringToIntAdaptiveRadixTreeTest, find)
 
 	tree::iterator it = tree_.find("");
 	EXPECT_TRUE(it != tree_.end());
-	EXPECT_EQ(-1, it.second);
+	EXPECT_EQ(-1, it->value);
 }

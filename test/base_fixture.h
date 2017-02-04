@@ -6,9 +6,9 @@ struct AdaptiveRadixTreeTest : public ::testing::Test
 {
 	void FlushCache()
 	{
-		static const int kMemSetSize = 64 * 1024 * 1024;
+		static const int kMemSetSize = 512 * 1024 * 1024;
 		void* ptr = malloc(kMemSetSize);
-		memset(ptr, 0xcd, kMemSetSize);
+		memset(ptr, 0xab, kMemSetSize);
 		free(ptr);
 	}
 
