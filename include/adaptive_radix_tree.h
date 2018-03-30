@@ -25,17 +25,17 @@ protected:
 	struct node_leaf_traits { enum { kPointerEmbeddedType = 0 }; enum { kStatsIndex = 0 }; };
 	struct node_4_traits    { enum { kPointerEmbeddedType = 1 }; enum { kStatsIndex = 1 }; enum { kMaxChildrenCount = 4   }; };
 	struct node_16_traits   { enum { kPointerEmbeddedType = 2 }; enum { kStatsIndex = 2 }; enum { kMaxChildrenCount = 16  }; };
-	struct node_48_traits   { enum { kPointerEmbeddedType = 4 }; enum { kStatsIndex = 3 }; enum { kMaxChildrenCount = 48  }; };
-	struct node_256_traits  { enum { kPointerEmbeddedType = 8 }; enum { kStatsIndex = 4 }; enum { kMaxChildrenCount = 256 }; };
+	struct node_48_traits   { enum { kPointerEmbeddedType = 3 }; enum { kStatsIndex = 3 }; enum { kMaxChildrenCount = 48  }; };
+	struct node_256_traits  { enum { kPointerEmbeddedType = 4 }; enum { kStatsIndex = 4 }; enum { kMaxChildrenCount = 256 }; };
 
 	enum
 	{
-		kPointerEmbeddedTypeMask = 15
+		kPointerEmbeddedTypeMask = 7
 	};
 
 	enum
 	{
-		kNodeAlignment = 16
+		kNodeAlignment = 4
 	};
 
 	
@@ -65,8 +65,9 @@ protected:
 		template<typename TNode>
 		bool is_node_type() const
 		{
-			return (reinterpret_cast<size_t>(ptr) & TNode::traits::kPointerEmbeddedType) != 0;
-		}
+            //return (reinterpret_cast<size_t>(ptr) & TNode::traits::kPointerEmbeddedType) != 0;
+            return (reinterpret_cast<size_t>(ptr) & kPointerEmbeddedTypeMask) == TNode::traits::kPointerEmbeddedType;
+        }
 
 		bool is_node_leaf() const
 		{
@@ -105,7 +106,7 @@ protected:
 			memcpy(prefix, key, keyLen);
 		}
 
-		enum { kMaxPrefixLength = 30 };
+		enum { kMaxPrefixLength = 6 };
 
 		uint8_t prefixLength;
 		uint8_t prefix[kMaxPrefixLength];
@@ -326,7 +327,7 @@ public:
 		, size_(0)
 	{
 #ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
-		memset(&node_stats_, 0, sizeof(node_stats_));
+		memset(&stats_, 0, sizeof(stats_));
 #endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 	}
 
@@ -339,7 +340,7 @@ public:
 	{
 		size_ = 0;
 #ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
-		memset(&node_stats_, 0, sizeof(node_stats_));
+		memset(&stats_, 0, sizeof(stats_));
 #endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 	}
 
@@ -662,8 +663,8 @@ private:
 		// Delete old node
 		destruct_node_n(ntyped);
 #ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
-		node_stats_[TNodeGrow::traits::kStatsIndex]++;
-		node_stats_[TNode::traits::kStatsIndex]--;
+		stats_.node_count_[TNodeGrow::traits::kStatsIndex]++;
+		stats_.node_count_[TNode::traits::kStatsIndex]--;
 #endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 
 		// Overwrite old reference
@@ -726,7 +727,7 @@ private:
 			}
 
 #ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
-			node_stats_[node_4_traits::kStatsIndex]++;
+			stats_.node_count_[node_4_traits::kStatsIndex]++;
 #endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 
 			lastSplitNode4 = newSplitNode;
@@ -749,7 +750,7 @@ private:
 			*parent_node = leafNode;
 		}
 #ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
-		node_stats_[node_leaf_traits::kStatsIndex]++;
+		stats_.node_count_[node_leaf_traits::kStatsIndex]++;
 #endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 
 		size_++;
@@ -766,7 +767,7 @@ private:
 		// Create a split new node with common prefix
 		node_4* newSplitNode = construct_raw_node_4(key, different_key_pos);
 #ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
-		node_stats_[node_4_traits::kStatsIndex]++;
+		stats_.node_count_[node_4_traits::kStatsIndex]++;
 #endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 
 		// Move the old node to the new node as a child
@@ -818,7 +819,11 @@ private:
 	//allocator alloc;
 
 #ifdef ENABLE_ADAPTIVE_RADIX_TREE_STATS
-	size_t node_stats_[5];
+    struct stats
+    {
+        size_t node_count_[5];
+    };
+    stats stats_;
 #endif // ENABLE_ADAPTIVE_RADIX_TREE_STATS
 };
 
