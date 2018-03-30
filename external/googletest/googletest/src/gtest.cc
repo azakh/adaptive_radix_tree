@@ -3138,8 +3138,16 @@ void PrettyUnitTestResultPrinter::OnTestEnd(const TestInfo& test_info) {
     PrintFullTestCommentIfPresent(test_info);
 
   if (GTEST_FLAG(print_time)) {
-    printf(" (%s ms)\n", internal::StreamableToString(
+    printf(" (%s ms", internal::StreamableToString(
            test_info.result()->elapsed_time()).c_str());
+	for (int i = 0; i < test_info.result()->test_property_count(); ++i)
+	{
+		printf(", %s: %s", internal::StreamableToString(
+			test_info.result()->GetTestProperty(i).key()).c_str(),
+			internal::StreamableToString(
+				test_info.result()->GetTestProperty(i).value()).c_str());
+	}
+    printf(")\n");
   } else {
     printf("\n");
   }

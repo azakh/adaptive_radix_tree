@@ -24,6 +24,8 @@ struct StringToIntAdaptiveRadixTreeTest : AdaptiveRadixTreeTest<std::string, int
 			if (!line.empty())
 				keys.push_back(line);
 		}
+
+		std::random_shuffle(keys.begin(), keys.end());
 	}
 };
 
