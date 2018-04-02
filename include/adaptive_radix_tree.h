@@ -10,38 +10,13 @@
 // Only temporary to avoid size calculation for string.
 #include <string>
 
-// sizeof(base_adaptive_radix_tree::node_leaf)	24
-// sizeof(base_adaptive_radix_tree::node_4)		56
-// sizeof(base_adaptive_radix_tree::node_16)	160
-// sizeof(base_adaptive_radix_tree::node_48)	656
-// sizeof(base_adaptive_radix_tree::node_256)	2064
+// sizeof(base_adaptive_radix_tree<int>::node_leaf)	4
+// sizeof(base_adaptive_radix_tree<int>::node_4)	56
+// sizeof(base_adaptive_radix_tree<int>::node_16)	160
+// sizeof(base_adaptive_radix_tree<int>::node_64)	656
+// sizeof(base_adaptive_radix_tree<int>::node_256)	2064
 
-class proxy_allocator
-{
-public:
-    proxy_allocator()
-        : allocated_(0)
-    {
-    }
-
-    void* allocate(size_t n)
-    {
-        void* ptr = malloc(n);
-        allocated_ += n;
-        return ptr;
-    }
-
-    void deallocate(void* ptr, size_t n)
-    {
-        allocated_ -= n;
-        free(ptr);
-    }
-
-private:
-    size_t allocated_;
-};
-
-template<typename TValue, size_t kMaxPrefixLength = 6, typename TAllocator = proxy_allocator>
+template<typename TValue, size_t kMaxPrefixLength, typename TAllocator>
 class base_adaptive_radix_tree
 {
 protected:
@@ -49,9 +24,8 @@ protected:
     struct node_leaf_traits { enum { kPointerEmbeddedType = 0 }; };
     struct node_4_traits    { enum { kPointerEmbeddedType = 1 }; enum { kMaxChildrenCount = 4 }; };
     struct node_16_traits   { enum { kPointerEmbeddedType = 2 }; enum { kMaxChildrenCount = 16 }; };
-    struct node_48_traits   { enum { kPointerEmbeddedType = 3 }; enum { kMaxChildrenCount = 48 }; };
-    struct node_96_traits   { enum { kPointerEmbeddedType = 4 }; enum { kMaxChildrenCount = 96 }; };
-    struct node_256_traits  { enum { kPointerEmbeddedType = 5 }; enum { kMaxChildrenCount = 256 }; };
+    struct node_64_traits   { enum { kPointerEmbeddedType = 3 }; enum { kMaxChildrenCount = 64 }; };
+    struct node_256_traits  { enum { kPointerEmbeddedType = 4 }; enum { kMaxChildrenCount = 256 }; };
 
     enum
     {
@@ -116,6 +90,9 @@ protected:
             return ptr != NULL;
         }
 
+        template<typename TNode>
+        void set_parent(TNode* parent);
+
         node_ptr ptr;
     };
 
@@ -123,16 +100,23 @@ protected:
     // Base node. Contains key prefix and children data.
     struct node
     {
-        node(const uint8_t* key, uint8_t keyLen)
-            : prefixLength(keyLen)
-            , childrenCount(0)
+        node(const uint8_t* key, uint8_t keyLen) :
+            prefixLength(keyLen),
+            childrenCount(0),
+            parent()
         {
             memcpy(prefix, key, keyLen);
+        }
+
+        void set_parent(node_ptr_with_type p)
+        {
+            parent = p;
         }
 
         uint8_t prefixLength;
         uint8_t prefix[kMaxPrefixLength];
         uint8_t childrenCount;
+        node_ptr_with_type parent;
     };
 
     // Simple indexed node template.
@@ -178,6 +162,8 @@ protected:
             children[childrenCount] = n_ptr;
             childrenCount++;
 
+            n_ptr->set_parent(this);
+
             return true;
         }
 
@@ -189,6 +175,9 @@ protected:
             keys[childrenCount] = k;
             children[childrenCount] = n;
             childrenCount++;
+
+            assert(!n.is_node_leaf());
+            n.get_node<node>()->set_parent(this);
 
             return true;
         }
@@ -231,6 +220,8 @@ protected:
             children[childrenCount] = n_ptr;
             childrenCount++;
 
+            n_ptr->set_parent(this);
+
             return true;
         }
 
@@ -243,6 +234,9 @@ protected:
             children[childrenCount] = n;
             childrenCount++;
 
+            assert(!n.is_node_leaf());
+            n.get_node<node>()->set_parent(this);
+
             return true;
         }
 
@@ -251,11 +245,10 @@ protected:
         uint8_t keys[256];
         node_ptr_with_type children[traits::kMaxChildrenCount];
     };
-    typedef node_bit_indexed<node_48_traits> node_48;
-    typedef node_bit_indexed<node_96_traits> node_96;
+    typedef node_bit_indexed<node_64_traits> node_64;
 
-    // Full inner node.
-    // 256 children accessible through indexing.
+    // Full node.
+    // 256 children accessible through direct byte mapping.
     struct node_256 : node
     {
         typedef node_256_traits traits;
@@ -282,6 +275,8 @@ protected:
             children[k] = n_ptr;
             childrenCount++;
 
+            n_ptr->set_parent(this);
+
             return true;
         }
 
@@ -289,6 +284,9 @@ protected:
         {
             children[k] = n;
             childrenCount++;
+
+            assert(!n.is_node_leaf());
+            n.get_node<node>()->set_parent(this);
 
             return true;
         }
@@ -305,6 +303,8 @@ protected:
             : value(v)
         {
         }
+
+        void set_parent(node_ptr_with_type) {}
 
         TValue value;
     };
@@ -480,16 +480,14 @@ private:
             alloc_leaf(alloc),
             alloc_node_4(alloc),
             alloc_node_16(alloc),
-            alloc_node_48(alloc),
-            alloc_node_96(alloc),
+            alloc_node_64(alloc),
             alloc_node_256(alloc)
         {}
 
         pool<node_leaf, TAllocator, kNodeAlignment, 1024> alloc_leaf;
         pool<node_4,    TAllocator, kNodeAlignment, 1024> alloc_node_4;
         pool<node_16,   TAllocator, kNodeAlignment, 1024> alloc_node_16;
-        pool<node_48,   TAllocator, kNodeAlignment,  512> alloc_node_48;
-        pool<node_96,   TAllocator, kNodeAlignment,  512> alloc_node_96;
+        pool<node_64,   TAllocator, kNodeAlignment,  512> alloc_node_64;
         pool<node_256,  TAllocator, kNodeAlignment,  256> alloc_node_256;
     };
 
@@ -539,19 +537,11 @@ private:
         }
     };
 
-    template<> struct construct_policy<node_48>
+    template<> struct construct_policy<node_64>
     {
-        static node_48* construct_node(pool_allocators& alloc, const uint8_t* key, uint8_t keyLen)
+        static node_64* construct_node(pool_allocators& alloc, const uint8_t* key, uint8_t keyLen)
         {
-            return construct_raw_index<node_48>(alloc.alloc_node_48, ncopy.prefix, ncopy.prefixLength);
-        }
-    };
-
-    template<> struct construct_policy<node_96>
-    {
-        static node_96* construct_node(pool_allocators& alloc, const uint8_t* key, uint8_t keyLen)
-        {
-            return construct_raw_index<node_96>(alloc.alloc_node_96, ncopy.prefix, ncopy.prefixLength);
+            return construct_raw_index<node_64>(alloc.alloc_node_64, ncopy.prefix, ncopy.prefixLength);
         }
     };
 
@@ -559,7 +549,7 @@ private:
     {
         static node_256* construct_node(pool_allocators& alloc, const uint8_t* key, uint8_t keyLen)
         {
-            return construct_raw_index<node_48>(alloc.alloc_node_256, ncopy.prefix, ncopy.prefixLength);
+            return construct_raw_index<node_64>(alloc.alloc_node_256, ncopy.prefix, ncopy.prefixLength);
         }
     };
 
@@ -587,19 +577,11 @@ private:
         }
     };
 
-    template<> struct destruct_policy<node_48>
+    template<> struct destruct_policy<node_64>
     {
-        static void destruct_node(pool_allocators& alloc, node_48* n)
+        static void destruct_node(pool_allocators& alloc, node_64* n)
         {
-            destruct_node_n<node_48>(alloc.alloc_node_48, n);
-        }
-    };
-
-    template<> struct destruct_policy<node_96>
-    {
-        static void destruct_node(pool_allocators& alloc, node_96* n)
-        {
-            destruct_node_n<node_96>(alloc.alloc_node_96, n);
+            destruct_node_n<node_64>(alloc.alloc_node_64, n);
         }
     };
 
@@ -621,6 +603,7 @@ private:
         {
             node_16* n = construct_raw_index<node_16>(alloc.alloc_node_16, ncopy.prefix, ncopy.prefixLength);
             n->childrenCount = ncopy.childrenCount;
+            n->parent = ncopy.parent;
             memcpy(n->keys, ncopy.keys, ncopy.childrenCount);
             memcpy(n->children, ncopy.children, ncopy.childrenCount * sizeof(ncopy.children[0]));
 
@@ -635,6 +618,7 @@ private:
         {
             node_4* n = construct_raw_index<node_4>(alloc.alloc_node_4, ncopy.prefix, ncopy.prefixLength);
             n->childrenCount = ncopy.childrenCount;
+            n->parent = ncopy.parent;
             memcpy(n->keys, ncopy.keys, ncopy.childrenCount);
             memcpy(n->children, ncopy.children, ncopy.childrenCount * sizeof(ncopy.children[0]));
 
@@ -643,11 +627,12 @@ private:
     };
     template<> struct grow_policy<node_16>
     {
-        typedef node_48 grow_type;
-        static node_48* copy_construct_node(pool_allocators& alloc, const node_16& ncopy)
+        typedef node_64 grow_type;
+        static node_64* copy_construct_node(pool_allocators& alloc, const node_16& ncopy)
         {
-            node_48* n = construct_raw_index<node_48>(alloc.alloc_node_48, ncopy.prefix, ncopy.prefixLength);
+            node_64* n = construct_raw_index<node_64>(alloc.alloc_node_64, ncopy.prefix, ncopy.prefixLength);
             n->childrenCount = ncopy.childrenCount;
+            n->parent = ncopy.parent;
             for (uint8_t i = 0; i < ncopy.childrenCount; ++i)
             {
                 n->keys[ncopy.keys[i]] = i;
@@ -657,82 +642,43 @@ private:
             return n;
         }
     };
-    //template<> struct grow_policy<node_16>
-    //{
-    //    typedef node_96 grow_type;
-    //    static node_96* copy_construct_node(pool_allocators& alloc, const node_16& ncopy)
-    //    {
-    //        node_96* n = construct_raw_index<node_96>(alloc.alloc_node_96, ncopy.prefix, ncopy.prefixLength);
-    //        n->childrenCount = ncopy.childrenCount;
-    //        for (uint8_t i = 0; i < ncopy.childrenCount; ++i)
-    //        {
-    //            n->keys[ncopy.keys[i]] = i;
-    //            n->children[i] = ncopy.children[i];
-    //        }
 
-    //        return n;
-    //    }
-    //};
-
-    template<> struct shrink_policy<node_48>
+    template<> struct shrink_policy<node_64>
     {
         typedef node_16 shrink_type;
-        static node_16* copy_construct_node(pool_allocators& alloc, const node_48& ncopy)
+        static node_16* copy_construct_node(pool_allocators& alloc, const node_64& ncopy)
         {
             node_16* n = construct_raw_index<node_16>(alloc.alloc_node_16, ncopy.prefix, ncopy.prefixLength);
-            for (size_t i = 0; i < sizeof(node_48::keys); ++i)
+            n->parent = ncopy.parent;
+            for (size_t i = 0; i < sizeof(node_64::keys); ++i)
             {
-                if (ncopy.keys[i] == node_48::kInvalidIndex)
+                if (ncopy.keys[i] == node_64::kInvalidIndex)
                     continue;
 
                 n->keys[n->childrenCount] = i;
                 n->children[n->childrenCount] = ncopy.children[ncopy.keys[i]];
+                n->children[n->childrenCount].set_parent(n);
                 n->childrenCount++;
             }
 
             return n;
         }
     };
-    template<> struct grow_policy<node_48>
-    {
-        typedef node_96 grow_type;
-        static node_96* copy_construct_node(pool_allocators& alloc, const node_48& ncopy)
-        {
-            node_96* n = construct_raw_index<node_96>(alloc.alloc_node_96, ncopy.prefix, ncopy.prefixLength);
-            n->childrenCount = ncopy.childrenCount;
-            memcpy(n->keys, ncopy.keys, sizeof(ncopy.keys));
-            memcpy(n->children, ncopy.children, ncopy.childrenCount * sizeof(ncopy.children[0]));
-
-            return n;
-        }
-    };
-
-    template<> struct shrink_policy<node_96>
-    {
-        typedef node_48 shrink_type;
-        static node_48* copy_construct_node(pool_allocators& alloc, const node_96& ncopy)
-        {
-            node_48* n = construct_raw_index<node_48>(alloc.alloc_node_48, ncopy.prefix, ncopy.prefixLength);
-            n->childrenCount = ncopy.childrenCount;
-            memcpy(n->keys, ncopy.keys, sizeof(ncopy.keys));
-            memcpy(n->children, ncopy.children, ncopy.childrenCount * sizeof(ncopy.children[0]));
-
-            return n;
-        }
-    };
-    template<> struct grow_policy<node_96>
+    template<> struct grow_policy<node_64>
     {
         typedef node_256 grow_type;
-        static node_256* copy_construct_node(pool_allocators& alloc, const node_96& ncopy)
+        static node_256* copy_construct_node(pool_allocators& alloc, const node_64& ncopy)
         {
             node_256* n = construct_raw_index<node_256>(alloc.alloc_node_256, ncopy.prefix, ncopy.prefixLength);
             n->childrenCount = ncopy.childrenCount;
-            for (size_t i = 0; i < sizeof(node_96::keys); ++i)
+            n->parent = ncopy.parent;
+            for (size_t i = 0; i < sizeof(node_64::keys); ++i)
             {
-                if (ncopy.keys[i] == node_96::kInvalidIndex)
+                if (ncopy.keys[i] == node_64::kInvalidIndex)
                     continue;
 
                 n->children[i] = ncopy.children[ncopy.keys[i]];
+                n->children[i].set_parent(n);
             }
 
             return n;
@@ -741,10 +687,11 @@ private:
 
     template<> struct shrink_policy<node_256>
     {
-        typedef node_96 shrink_type;
-        static node_96* copy_construct_node(pool_allocators& alloc, const node_256& ncopy)
+        typedef node_64 shrink_type;
+        static node_64* copy_construct_node(pool_allocators& alloc, const node_256& ncopy)
         {
-            node_96* n = construct_raw_index<node_96>(alloc.alloc_node_96, ncopy.prefix, ncopy.prefixLength);
+            node_64* n = construct_raw_index<node_64>(alloc.alloc_node_64, ncopy.prefix, ncopy.prefixLength);
+            n->parent = ncopy.parent;
             for (size_t i = 0; i < ncopy.childrenCount; ++i)
             {
                 if (!ncopy.children[i].is_valid())
@@ -752,6 +699,7 @@ private:
 
                 n->keys[i] = n->childrenCount;
                 n->children[n->childrenCount] = ncopy.children[i];
+                n->children[n->childrenCount].set_parent(n);
                 n->childrenCount++;
             }
 
@@ -763,70 +711,66 @@ private:
     static node_4* construct_raw_node_4(pool_allocators& alloc, const uint8_t* key, uint8_t keyLen) { return construct_raw_index<node_4>(alloc.alloc_node_4, key, keyLen); }
 
     // Return k child of the node n.
+    // Return k child of the node n.
     static node_ptr_with_type get_child(node_ptr_with_type n, uint8_t k)
     {
-        size_t node_type = n.get_node_type();
-        assert(node_type != node_leaf_traits::kPointerEmbeddedType);
+        assert(!n.is_node_leaf());
 
-        return node_type == node_4_traits::kPointerEmbeddedType ? n.get_node<node_4>()->get_child(k) :
-            node_type == node_16_traits::kPointerEmbeddedType ? n.get_node<node_16>()->get_child(k) :
-            node_type < node_256_traits::kPointerEmbeddedType ? n.get_node<node_96>()->get_child(k) :
+        return n.is_node_type<node_4>() ? n.get_node<node_4>()->get_child(k) :
+            n.is_node_type<node_16>() ? n.get_node<node_16>()->get_child(k) :
+            n.is_node_type<node_64>() ? n.get_node<node_64>()->get_child(k) :
             n.get_node<node_256>()->get_child(k);
     }
-
     static node_ptr_with_type* get_child_ptr(node_ptr_with_type n, uint8_t k)
     {
-        size_t node_type = n.get_node_type();
-        assert(node_type != node_leaf_traits::kPointerEmbeddedType);
+        assert(!n.is_node_leaf());
 
-        return node_type == node_4_traits::kPointerEmbeddedType ? n.get_node<node_4>()->get_child_ptr(k) :
-            node_type == node_16_traits::kPointerEmbeddedType ? n.get_node<node_16>()->get_child_ptr(k) :
-            node_type < node_256_traits::kPointerEmbeddedType ? n.get_node<node_96>()->get_child_ptr(k) :
+        return n.is_node_type<node_4>() ? n.get_node<node_4>()->get_child_ptr(k) :
+            n.is_node_type<node_16>() ? n.get_node<node_16>()->get_child_ptr(k) :
+            n.is_node_type<node_64>() ? n.get_node<node_64>()->get_child_ptr(k) :
             n.get_node<node_256>()->get_child_ptr(k);
     }
 
-    template<typename TNode>
-    bool try_add_child(node_ptr_with_type* nptr, node_ptr_with_type childptr, uint8_t key)
+    template<typename TParentNode, typename TChildNode>
+    bool try_add_child(node_ptr_with_type* parent, TChildNode* childptr, uint8_t key)
     {
-        if (!nptr->is_node_type<TNode>())
+        if (!parent->is_node_type<TParentNode>())
             return false;
 
         // Add if we have space
-        TNode* ntyped = nptr->get_node<TNode>();
+        TParentNode* ntyped = parent->get_node<TParentNode>();
         if (ntyped->add_child(childptr, key))
             return true;
 
         // Grow to larger node and add new child
-        typedef typename grow_policy<TNode>::grow_type TNodeGrow;
-        TNodeGrow* ngrown = grow_policy<TNode>::copy_construct_node(pool_allocators_, *ntyped);
+        typedef typename grow_policy<TParentNode>::grow_type TParentNodeGrow;
+        TParentNodeGrow* ngrown = grow_policy<TParentNode>::copy_construct_node(pool_allocators_, *ntyped);
         ngrown->add_child(childptr, key);
         // Delete old node
-        destruct_policy<TNode>::destruct_node(pool_allocators_, ntyped);
+        destruct_policy<TParentNode>::destruct_node(pool_allocators_, ntyped);
 
         // Overwrite old reference
-        *nptr = ngrown;
+        *parent = ngrown;
 
         return true;
     }
 
     // Add child to the nptr node with conversion if necessary.
-    void add_child(node_ptr_with_type* nbox, node_ptr_with_type childptr, uint8_t key)
+    template<typename TChildNode>
+    void add_child(node_ptr_with_type* parentptr, TChildNode* child, uint8_t key)
     {
-        assert(!nbox->is_node_leaf());
+        assert(!parentptr->is_node_leaf());
 
-        if (try_add_child<node_4>(nbox, childptr, key))
-            return;
-
-        if (try_add_child<node_16>(nbox, childptr, key))
-            return;
-
-        if (try_add_child<node_48>(nbox, childptr, key))
-            return;
-
-        if (try_add_child<node_96>(nbox, childptr, key))
-            return;
-
-        nbox->get_node<node_256>()->add_child(childptr, key);
+        if (!try_add_child<node_4>(parentptr, child, key))
+        {
+            if (!try_add_child<node_16>(parentptr, child, key))
+            {
+                if (!try_add_child<node_64>(parentptr, child, key))
+                {
+                    parentptr->get_node<node_256>()->add_child(child, key);
+                }
+            }
+        }
     }
 
     // Add leaf node.
@@ -921,16 +865,23 @@ private:
     TAllocator alloc_;
     pool_allocators pool_allocators_;
 };
+template<typename TValue, size_t kMaxPrefixLength, typename TAllocator>
+template<typename TNode>
+inline void base_adaptive_radix_tree<TValue, kMaxPrefixLength, TAllocator>::node_ptr_with_type::set_parent(TNode* parent)
+{
+    if (!is_node_leaf())
+        get_node<node>()->set_parent(parent);
+}
 
 // TKey can be:
 // - const char*
 // - primitive type: int, float...
 // - POD struct
-template<typename TKey, typename TValue>
-class adaptive_radix_tree : base_adaptive_radix_tree<TValue>
+template<typename TKey, typename TValue, size_t kMaxPrefixLength = 6, typename TAllocator = std::allocator<uint8_t> >
+class adaptive_radix_tree : base_adaptive_radix_tree<TValue, kMaxPrefixLength, TAllocator>
 {
 public:
-    typedef base_adaptive_radix_tree<TValue> base_tree;
+    typedef base_adaptive_radix_tree<TValue, kMaxPrefixLength, TAllocator> base_tree;
     typedef base_tree::iterator iterator;
 
     adaptive_radix_tree()
@@ -968,12 +919,12 @@ public:
 };
 
 // const char* specialization
-template<typename TValue>
-class adaptive_radix_tree<const char*, TValue> : base_adaptive_radix_tree<TValue>
+template<typename TValue, size_t kMaxPrefixLength, typename TAllocator>
+class adaptive_radix_tree<const char*, TValue, kMaxPrefixLength, TAllocator> : base_adaptive_radix_tree<TValue, kMaxPrefixLength, TAllocator>
 {
 public:
-    typedef base_adaptive_radix_tree<TValue> base_tree;
-    typedef base_adaptive_radix_tree<TValue>::iterator iterator;
+    typedef base_adaptive_radix_tree<TValue, kMaxPrefixLength, TAllocator> base_tree;
+    typedef base_adaptive_radix_tree<TValue, kMaxPrefixLength, TAllocator>::iterator iterator;
 
     adaptive_radix_tree()
         : base_tree()
@@ -1010,12 +961,12 @@ public:
 };
 
 // const std::string& specialization
-template<typename TValue>
-class adaptive_radix_tree<std::string, TValue> : base_adaptive_radix_tree<TValue>
+template<typename TValue, size_t kMaxPrefixLength, typename TAllocator>
+class adaptive_radix_tree<std::string, TValue, kMaxPrefixLength, TAllocator> : base_adaptive_radix_tree<TValue, kMaxPrefixLength, TAllocator>
 {
 public:
-    typedef base_adaptive_radix_tree<TValue> base_tree;
-    typedef base_adaptive_radix_tree<TValue>::iterator iterator;
+    typedef base_adaptive_radix_tree<TValue, kMaxPrefixLength, TAllocator> base_tree;
+    typedef base_adaptive_radix_tree<TValue, kMaxPrefixLength, TAllocator>::iterator iterator;
 
     adaptive_radix_tree()
         : base_tree()
