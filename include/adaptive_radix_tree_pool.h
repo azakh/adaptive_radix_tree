@@ -11,7 +11,7 @@ public:
     struct used_item
     {
         uint8_t data[sizeof(T)];
-        block_header* block;
+        uint32_t block_offset;
     };
 
     struct free_item
@@ -45,6 +45,8 @@ public:
         kBlockBytes = sizeof(block_header) + kPoolBlockSize * sizeof(item) + kItemAlignment - 1
     };
 
+    static_assert(kBlockBytes < uint32_t(-1), "kPoolBlockSize * sizeof(T) must be less than 4GB!");
+
     pool(TAllocator& alloc) :
         first_free_block_(NULL),
         first_block_(NULL),
@@ -71,7 +73,7 @@ public:
         first_free_block_->first_free_item = fi->next_free_item;
 
         used_item* i = reinterpret_cast<used_item*>(fi);
-        i->block = first_free_block_;
+        i->block_offset = static_cast<uint32_t>(reinterpret_cast<uint8_t*>(i) - reinterpret_cast<uint8_t*>(first_free_block_));
         first_free_block_->used++;
         used_++;
 
@@ -94,7 +96,7 @@ public:
     void deallocate(void* ptr)
     {
         used_item* i = static_cast<used_item*>(ptr);
-        block_header* block = i->block;
+        block_header* block = reinterpret_cast<block_header*>(reinterpret_cast<uint8_t*>(i) - i->block_offset);
         const bool in_used_list = block->first_free_item == NULL;
 
         free_item* fi = reinterpret_cast<free_item*>(i);
@@ -123,7 +125,7 @@ public:
                     next->prev = prev;
             }
 
-            alloc_.deallocate(block, kBlockBytes);
+            alloc_.deallocate(reinterpret_cast<uint8_t*>(block), kBlockBytes);
             return;
         }
         if (!in_used_list)
@@ -191,7 +193,7 @@ private:
         while (block != NULL)
         {
             block_header* next = block->next;
-            alloc_.deallocate(static_cast<void*>(block), kBlockBytes);
+            alloc_.deallocate(reinterpret_cast<uint8_t*>(block), kBlockBytes);
             block = next;
         }
     }
